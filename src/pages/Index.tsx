@@ -1,4 +1,3 @@
-
 import { Navbar } from "@/components/Navbar";
 import { ConnectionForm } from "@/components/ConnectionForm";
 import { Dashboard } from "@/components/Dashboard";
@@ -8,6 +7,7 @@ import { motion } from "framer-motion";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 
 const featureItems = [
   {
@@ -36,6 +36,14 @@ const Index = () => {
   const { repository } = useRepository();
   const { theme } = useTheme();
   const connectionFormRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+
+  // Navigate to repository page when connected
+  useEffect(() => {
+    if (repository?.isConnected) {
+      navigate(`/${repository.owner}/${repository.name}`);
+    }
+  }, [repository?.isConnected, repository?.owner, repository?.name, navigate]);
 
   // Scroll to top when repository is connected
   useEffect(() => {

@@ -1,9 +1,9 @@
-
 import { useRepository } from "@/contexts/RepositoryContext";
 import { Button } from "@/components/ui/button";
-import { GitBranchPlus, RefreshCw, LogOut } from "lucide-react";
+import { GitBranchPlus, RefreshCw, LogOut, Home } from "lucide-react";
 import { motion } from "framer-motion";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { Link } from "react-router-dom";
 
 export const Navbar = () => {
   const { repository, disconnectRepository, fetchBranches, loading } = useRepository();
@@ -22,24 +22,26 @@ export const Navbar = () => {
           animate={{ x: 0, opacity: 1 }}
           transition={{ delay: 0.1, duration: 0.4 }}
         >
-          <motion.div
-            whileHover={{ rotate: 360 }}
-            transition={{ duration: 0.6 }}
-          >
-            <GitBranchPlus className="h-6 w-6 text-gitextender-primary" />
-          </motion.div>
-          <h1 className="text-xl font-bold tracking-tight">
-            <span className="text-gitextender-primary">Git</span>
-            <span className="relative">
-              Extender
-              <motion.span
-                initial={{ width: 0 }}
-                animate={{ width: '100%' }}
-                transition={{ delay: 0.5, duration: 0.5 }}
-                className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-gitextender-primary to-transparent"
-              />
-            </span>
-          </h1>
+          <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <motion.div
+              whileHover={{ rotate: 360 }}
+              transition={{ duration: 0.6 }}
+            >
+              <GitBranchPlus className="h-6 w-6 text-gitextender-primary" />
+            </motion.div>
+            <h1 className="text-xl font-bold tracking-tight">
+              <span className="text-gitextender-primary">Git</span>
+              <span className="relative">
+                Extender
+                <motion.span
+                  initial={{ width: 0 }}
+                  animate={{ width: '100%' }}
+                  transition={{ delay: 0.5, duration: 0.5 }}
+                  className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-gitextender-primary to-transparent"
+                />
+              </span>
+            </h1>
+          </Link>
         </motion.div>
 
         <motion.div 
@@ -73,7 +75,6 @@ export const Navbar = () => {
             </>
           )}
           
-          {/* Replace the old theme toggle with the new ThemeSwitcher component */}
           <ThemeSwitcher />
         </motion.div>
       </div>
