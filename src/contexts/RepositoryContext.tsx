@@ -26,6 +26,7 @@ interface RepositoryContextType {
   createPullRequest: (branchName: string, targetBranch: string) => void;
   openPullRequestForm: (branchName: string, targetBranch: string) => void;
   deleteBranch: (branchName: string) => Promise<void>;
+  saveRepository: (repo: SavedRepository) => void;
 }
 
 const RepositoryContext = createContext<RepositoryContextType>({
@@ -47,6 +48,7 @@ const RepositoryContext = createContext<RepositoryContextType>({
   createPullRequest: () => {},
   openPullRequestForm: () => {},
   deleteBranch: async () => {},
+  saveRepository: () => {},
 });
 
 export const useRepository = () => useContext(RepositoryContext);
@@ -60,13 +62,22 @@ const parseRepoUrl = (url: string): { provider: GitProvider, owner: string, name
   if (url.includes('gitlab')) provider = 'gitlab';
   if (url.includes('bitbucket')) provider = 'bitbucket';
   
-  const cleanUrl = url.endsWith('.git') ? url.slice(0, -4) : url;
-  let path = cleanUrl.replace(/^(https?:\/\/)?(www\.)?/, '');
+  // Clean the URL
+  const cleanUrl = url
+    .replace(/^(https?:\/\/)?(www\.)?/, '') // Remove protocol and www
+    .replace(/\.git$/, '') // Remove .git suffix
+    .replace(/^github\.com\//, ''); // Remove github.com/ prefix if present
   
-  const parts = path.split('/');
+  // Split by slashes and filter out empty parts
+  const parts = cleanUrl.split('/').filter(Boolean);
   
-  const owner = parts.length >= 2 ? parts[parts.length - 2] : '';
-  const name = parts.length >= 1 ? parts[parts.length - 1] : '';
+  if (parts.length < 2) {
+    throw new Error('Invalid repository URL format. Expected format: owner/repo or github.com/owner/repo');
+  }
+  
+  // The last two parts should be owner and repo name
+  const owner = parts[parts.length - 2];
+  const name = parts[parts.length - 1];
   
   return { provider, owner, name };
 };
@@ -130,30 +141,27 @@ const fetchGitHubBranches = async (
   }
   
   try {
-    while (hasMorePages) {
-      const response = await axios({
-        method: 'get',
-        url: `https://api.github.com/repos/${owner}/${repo}/branches`,
-        params: {
-          per_page: perPage,
-          page: currentPage
-        },
-        headers: headers
-      });
-      
-      const branchesPage = response.data;
-      
-      if (branchesPage.length === 0) {
-        hasMorePages = false;
-      } else {
-        allBranches = [...allBranches, ...branchesPage];
-        
-        const linkHeader = response.headers.link;
-        hasMorePages = linkHeader && linkHeader.includes('rel="next"');
-        
-        currentPage++;
-      }
-    }
+    // First, get all branches in a single request
+    const response = await axios({
+      method: 'get',
+      url: `https://api.github.com/repos/${owner}/${repo}/branches`,
+      params: {
+        per_page: perPage
+      },
+      headers: headers
+    });
+    
+    allBranches = response.data;
+    
+    // Create a set of existing branch names for quick lookup
+    const existingBranchNames = new Set(allBranches.map((branch: any) => branch.name));
+    
+    // Filter target branches to only include existing ones
+    const targetBranches = [
+      defaultBranches.development,
+      defaultBranches.quality,
+      defaultBranches.production
+    ].filter(branchName => existingBranchNames.has(branchName));
     
     const filteredBranches = allBranches.filter(
       branch => {
@@ -174,38 +182,10 @@ const fetchGitHubBranches = async (
         
         const commit = commitResponse.data;
         
-        const targets = [
-          defaultBranches.development,
-          defaultBranches.quality,
-          defaultBranches.production
-        ];
-
+        // Only check merge status against existing target branches
         const mergeStatuses = await Promise.all(
-          targets.map(async (target) => {
+          targetBranches.map(async (target) => {
             try {
-              // First check if the target branch exists
-              let targetExists = true;
-              try {
-                await axios({
-                  method: 'get',
-                  url: `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(target)}`,
-                  headers: headers
-                });
-              } catch (error) {
-                targetExists = false;
-              }
-              
-              if (!targetExists) {
-                return {
-                  target,
-                  isMerged: false,
-                  commitsBehind: 0,
-                  commitsAhead: 0,
-                  totalCommits: 0,
-                  mergedCommits: 0
-                };
-              }
-
               // Use GitHub's compare API to check the difference between branches
               const compareResponse = await axios({
                 method: 'get',
@@ -215,10 +195,6 @@ const fetchGitHubBranches = async (
               
               const { ahead_by: commitsAhead, behind_by: commitsBehind, status } = compareResponse.data;
               
-              // A branch is considered merged if:
-              // 1. It has no commits ahead of target (ahead_by === 0)
-              // 2. The status is not 'diverged'
-              // 3. Or if it's diverged but the content is identical
               const isMerged = (commitsAhead === 0 && status !== 'diverged') || 
                              (status === 'identical');
 
@@ -445,12 +421,19 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
     let updatedRepos: SavedRepository[];
     
     if (existingRepoIndex >= 0) {
-      updatedRepos = [...savedRepositories];
-      updatedRepos[existingRepoIndex] = {
-        ...repo,
-        lastUsed: new Date().toISOString()
-      };
-    } else {
+      if (repo.isDeleted) {
+        // Remove the repository if it's marked as deleted
+        updatedRepos = savedRepositories.filter(r => r.url !== repo.url);
+      } else {
+        // Update the existing entry
+        updatedRepos = [...savedRepositories];
+        updatedRepos[existingRepoIndex] = {
+          ...repo,
+          lastUsed: new Date().toISOString()
+        };
+      }
+    } else if (!repo.isDeleted) {
+      // Only add new repositories that aren't marked as deleted
       updatedRepos = [
         ...savedRepositories,
         {
@@ -458,6 +441,9 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
           lastUsed: new Date().toISOString()
         }
       ];
+    } else {
+      // If it's a new entry marked as deleted, don't add it
+      updatedRepos = savedRepositories;
     }
     
     setSavedRepositories(updatedRepos);
@@ -501,102 +487,141 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
       production: string;
     }
   ) => {
-    if (!url) {
-      setError('Repository URL is required');
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    
     try {
+      setLoading(true);
+      setError(null);
+
+      // Parse the repository URL to get owner and name
       const { provider, owner, name } = parseRepoUrl(url);
+
+      // Check if it's a user/organization profile
+      const isProfile = !name || name === '';
       
-      if (!owner || !name) {
-        throw new Error('Invalid repository URL format');
-      }
-      
-      // Load saved branch names from localStorage if not provided
-      if (!defaultBranches) {
-        const savedDefaultBranchesString = localStorage.getItem(LAST_REPO_DATA_KEY);
-        if (savedDefaultBranchesString) {
-          try {
-            defaultBranches = JSON.parse(savedDefaultBranchesString);
-          } catch (error) {
-            console.error('Error parsing saved default branches:', error);
-            defaultBranches = { 
-              development: 'Development',
-              quality: 'Quality',
-              production: 'Production'
-            };
-          }
-        } else {
-          defaultBranches = { 
+      if (isProfile) {
+        // For profiles, we don't need to verify the repository
+        const repository: Repository = {
+          name: '',
+          owner,
+          url: `https://github.com/${owner}`,
+          provider,
+          isConnected: true,
+          defaultBranches: defaultBranches || {
             development: 'Development',
             quality: 'Quality',
             production: 'Production'
-          };
-        }
+          },
+          token,
+          lastFetched: new Date().toISOString()
+        };
+
+        // Save repository data
+        setRepository(repository);
+        saveRepository({
+          url: repository.url,
+          name: repository.name,
+          owner: repository.owner,
+          provider: repository.provider,
+          lastUsed: new Date().toISOString(),
+          token: repository.token,
+          defaultBranches: repository.defaultBranches,
+          isOrganization: true,
+          type: 'organization'
+        });
+
+        // Save last used repository data
+        saveLastRepoData({
+          url: repository.url,
+          token: repository.token,
+          defaultBranches: repository.defaultBranches
+        });
+
+        return;
       }
-      
-      const repo: Repository = {
-        url,
-        provider,
-        owner,
-        name,
-        isConnected: true,
-        lastFetched: new Date().toISOString(),
-        token,
-        defaultBranches
+
+      // Set up headers for GitHub API
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
       };
-      
-      const stats = await fetchRepoStats(owner, name, provider, token);
-      
-      if (stats?.description) {
-        repo.description = stats.description;
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
       }
-      
-      setRepository(repo);
-      
-      saveRepository({
-        url,
+
+      // First, verify the repository exists and get basic info
+      const repoResponse = await axios.get(
+        `https://api.github.com/repos/${owner}/${name}`,
+        { headers }
+      );
+
+      if (!repoResponse.data) {
+        throw new Error('Repository not found');
+      }
+
+      const repoData = repoResponse.data;
+
+      // Create repository object
+      const repository: Repository = {
+        id: repoData.id.toString(),
+        name: repoData.name,
+        owner: repoData.owner.login,
+        url: repoData.html_url,
         provider,
-        owner,
-        name,
+        isConnected: true,
+        defaultBranches: defaultBranches || {
+          development: 'Development',
+          quality: 'Quality',
+          production: 'Production'
+        },
         token,
+        description: repoData.description,
+        lastFetched: new Date().toISOString()
+      };
+
+      // Save repository data
+      setRepository(repository);
+      saveRepository({
+        url: repository.url,
+        name: repository.name,
+        owner: repository.owner,
+        provider: repository.provider,
         lastUsed: new Date().toISOString(),
-        defaultBranches
+        token: repository.token,
+        defaultBranches: repository.defaultBranches,
+        isOrganization: false,
+        type: 'repository'
       });
-      
+
+      // Save last used repository data
       saveLastRepoData({
-        url,
-        token,
-        defaultBranches
+        url: repository.url,
+        token: repository.token,
+        defaultBranches: repository.defaultBranches
       });
-      
-      let fetchedBranches: Branch[] = [];
-      
-      try {
-        switch (provider) {
-          case 'github':
-            fetchedBranches = await fetchGitHubBranches(owner, name, token, defaultBranches);
-            break;
-          default:
-            throw new Error('Only GitHub is currently supported');
+
+      // Fetch additional data
+      await Promise.all([
+        fetchBranches(repository),
+        fetchRepoStats(owner, name, provider, token),
+        fetchReadmeContent(owner, name, token)
+      ]);
+
+    } catch (error) {
+      console.error('Error connecting to repository:', error);
+      if (axios.isAxiosError(error)) {
+        if (error.response?.status === 404) {
+          setError('Repository not found. Please check the URL and try again.');
+        } else if (error.response?.status === 401) {
+          setError('Authentication failed. Please check your access token.');
+        } else {
+          setError(error.response?.data?.message || 'Failed to connect to repository');
         }
-        
-        setBranches(fetchedBranches);
-      } catch (err) {
-        console.error('Error fetching branches:', err);
-        setError(`Failed to fetch branches from repository. ${err instanceof Error ? err.message : ''} Please check your repository URL and access token.`);
-        setBranches([]);
+      } else if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('An unexpected error occurred');
       }
-    } catch (err) {
-      console.error(err);
-      setError(`Failed to connect to the repository. ${err instanceof Error ? err.message : ''}`);
       setRepository(null);
-      setBranches([]);
-      setRepoStats(null);
     } finally {
       setLoading(false);
     }
@@ -746,7 +771,8 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
     updateDefaultBranches,
     createPullRequest,
     openPullRequestForm,
-    deleteBranch
+    deleteBranch,
+    saveRepository
   };
 
   return (
