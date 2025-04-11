@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useRepository } from "@/contexts/RepositoryContext";
 import { Button } from "@/components/ui/button";
@@ -25,24 +24,12 @@ export const ConnectionForm = () => {
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  
-  // Branch naming configuration
-  const [developmentBranch, setDevelopmentBranch] = useState("development");
-  const [qualityBranch, setQualityBranch] = useState("quality");
-  const [productionBranch, setProductionBranch] = useState("production");
 
   // Load last used repository data if available
   useEffect(() => {
     if (repository) {
       setUrl(repository.url || "");
       setToken(repository.token || "");
-      
-      if (repository.defaultBranches) {
-        setDevelopmentBranch(repository.defaultBranches.development);
-        setQualityBranch(repository.defaultBranches.quality);
-        setProductionBranch(repository.defaultBranches.production);
-      }
     }
   }, [repository]);
 
@@ -67,9 +54,9 @@ export const ConnectionForm = () => {
         url, 
         token || undefined,
         {
-          development: developmentBranch,
-          quality: qualityBranch,
-          production: productionBranch
+          development: "Development",
+          quality: "Quality",
+          production: "Production"
         }
       );
       toast.success("Repository connected successfully!");
@@ -82,12 +69,6 @@ export const ConnectionForm = () => {
   const handleSelectSavedRepository = (savedRepo: SavedRepository) => {
     setUrl(savedRepo.url);
     setToken(savedRepo.token || "");
-    
-    if (savedRepo.defaultBranches) {
-      setDevelopmentBranch(savedRepo.defaultBranches.development);
-      setQualityBranch(savedRepo.defaultBranches.quality);
-      setProductionBranch(savedRepo.defaultBranches.production);
-    }
   };
 
   const provider = detectProvider(url);
@@ -198,81 +179,11 @@ export const ConnectionForm = () => {
               </p>
             </div>
             
-            <div className="pt-2">
-              <Button 
-                type="button" 
-                variant="outline" 
-                size="sm" 
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="w-full text-sm flex items-center justify-between"
-              >
-                <span>Advanced Settings</span>
-                <ChevronDown className={`h-4 w-4 transform transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-              </Button>
-              
-              {showAdvanced && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="mt-4 space-y-4 border rounded-md p-4 bg-muted/30"
-                >
-                  <div>
-                    <Label htmlFor="development-branch" className="text-sm">
-                      Development Branch Name
-                    </Label>
-                    <Input
-                      id="development-branch"
-                      value={developmentBranch}
-                      onChange={(e) => setDevelopmentBranch(e.target.value)}
-                      className="mt-1"
-                      placeholder="development"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="quality-branch" className="text-sm">
-                      Quality Branch Name
-                    </Label>
-                    <Input
-                      id="quality-branch"
-                      value={qualityBranch}
-                      onChange={(e) => setQualityBranch(e.target.value)}
-                      className="mt-1"
-                      placeholder="quality"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="production-branch" className="text-sm">
-                      Production Branch Name
-                    </Label>
-                    <Input
-                      id="production-branch"
-                      value={productionBranch}
-                      onChange={(e) => setProductionBranch(e.target.value)}
-                      className="mt-1"
-                      placeholder="production"
-                    />
-                  </div>
-                </motion.div>
-              )}
-            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Connecting..." : "Connect Repository"}
+            </Button>
           </form>
         </CardContent>
-        <CardFooter>
-          <Button 
-            onClick={handleSubmit}
-            disabled={loading || !url.trim()} 
-            className="w-full relative overflow-hidden group"
-          >
-            <span className="absolute inset-0 w-0 bg-white/20 transition-all duration-500 ease-out group-hover:w-full"></span>
-            <span className="relative">
-              {loading ? "Connecting..." : "Connect Repository"}
-            </span>
-          </Button>
-        </CardFooter>
       </Card>
     </motion.div>
   );

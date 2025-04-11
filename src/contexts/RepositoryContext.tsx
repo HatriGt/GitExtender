@@ -17,7 +17,7 @@ interface RepositoryContextType {
     production: string;
   }) => Promise<void>;
   disconnectRepository: () => void;
-  fetchBranches: () => Promise<void>;
+  fetchBranches: (repoToUse?: Repository) => Promise<void>;
   toggleBranchSelection: (branchId: string) => void;
   areAllBranchesSelected: boolean;
   toggleAllBranchSelection: () => void;
@@ -53,7 +53,6 @@ export const useRepository = () => useContext(RepositoryContext);
 
 const SAVED_REPOSITORIES_KEY = 'gitextender-saved-repositories';
 const LAST_REPO_DATA_KEY = 'gitextender-last-repo-data';
-const DEFAULT_BRANCHES_KEY = 'gitextender-default-branches';
 
 const parseRepoUrl = (url: string): { provider: GitProvider, owner: string, name: string } => {
   let provider: GitProvider = 'github';
@@ -114,7 +113,7 @@ const fetchGitHubBranches = async (
   owner: string, 
   repo: string, 
   token?: string, 
-  defaultBranches = { development: 'Development', quality: 'Quality', production: 'Production' }
+  defaultBranches: { development: string; quality: string; production: string } = { development: 'Development', quality: 'Quality', production: 'Production' }
 ): Promise<Branch[]> => {
   let allBranches: any[] = [];
   let currentPage = 1;
@@ -176,9 +175,9 @@ const fetchGitHubBranches = async (
         const commit = commitResponse.data;
         
         const targets = [
-          defaultBranches.development.toLowerCase(),
-          defaultBranches.quality.toLowerCase(),
-          defaultBranches.production.toLowerCase()
+          defaultBranches.development,
+          defaultBranches.quality,
+          defaultBranches.production
         ];
 
         const mergeStatuses = await Promise.all(
@@ -221,12 +220,16 @@ const fetchGitHubBranches = async (
                   const commitsAhead = compareData.ahead_by;
                   const commitsBehind = compareData.behind_by;
                   
-                  // Branch is merged if it has no commits ahead of target
-                  const isMerged = commitsAhead === 0 && compareData.status !== 'diverged';
+                  // Branch is merged if:
+                  // 1. It has no commits ahead of target and is not diverged
+                  // 2. It is behind target (meaning target has all its commits)
+                  // 3. It has diverged but target has all its commits
+                  const isMerged = (commitsAhead === 0 && compareData.status !== 'diverged') || 
+                                  (commitsBehind > 0 && commitsAhead === 0) ||
+                                  (compareData.status === 'diverged' && commitsBehind > 0);
                   
-                  // If isMerged is false but commitsBehind is 0, check the other direction
-                  if (!isMerged && commitsBehind === 0) {
-                    // If branch and target have diverged, check if target contains branch's head commit
+                  // If we're not sure about the merge status, check the other direction
+                  if (!isMerged) {
                     try {
                       const reverseCompare = await axios({
                         method: 'get',
@@ -449,9 +452,9 @@ const fetchGitHubRepoStats = async (owner: string, repo: string, token?: string)
   }
 };
 
-const fetchReadmeContent = async (owner: string, repo: string, token?: string): Promise<string | null> => {
+const fetchReadmeContent = async (owner: string, name: string, token?: string): Promise<string | null> => {
   const headers: Record<string, string> = {
-    'Accept': 'application/vnd.github.html+json',
+    'Accept': 'application/vnd.github.raw',
     'X-GitHub-Api-Version': '2022-11-28'
   };
   
@@ -462,7 +465,7 @@ const fetchReadmeContent = async (owner: string, repo: string, token?: string): 
   try {
     const response = await axios({
       method: 'get',
-      url: `https://api.github.com/repos/${owner}/${repo}/readme`,
+      url: `https://api.github.com/repos/${owner}/${name}/readme`,
       headers: headers
     });
     
@@ -507,24 +510,6 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
         console.error('Error parsing last repository data:', error);
       }
     }
-    
-    const savedDefaultBranchesString = localStorage.getItem(DEFAULT_BRANCHES_KEY);
-    if (savedDefaultBranchesString) {
-      try {
-        const savedDefaultBranches = JSON.parse(savedDefaultBranchesString);
-        setRepository(prev => {
-          if (prev) {
-            return {
-              ...prev,
-              defaultBranches: savedDefaultBranches
-            };
-          }
-          return prev;
-        });
-      } catch (error) {
-        console.error('Error parsing saved default branches:', error);
-      }
-    }
   }, []);
 
   const saveRepository = (repo: SavedRepository) => {
@@ -554,7 +539,6 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
 
   const saveLastRepoData = (data: { url: string, token?: string, defaultBranches: { development: string, quality: string, production: string } }) => {
     localStorage.setItem(LAST_REPO_DATA_KEY, JSON.stringify(data));
-    localStorage.setItem(DEFAULT_BRANCHES_KEY, JSON.stringify(data.defaultBranches));
   };
 
   const fetchRepoStats = async (owner: string, name: string, provider: GitProvider, token?: string) => {
@@ -584,10 +568,10 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
   const connectRepository = async (
     url: string, 
     token?: string,
-    defaultBranches = { 
-      development: 'Development',
-      quality: 'Quality',
-      production: 'Production'
+    defaultBranches?: { 
+      development: string;
+      quality: string;
+      production: string;
     }
   ) => {
     if (!url) {
@@ -603,6 +587,29 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
       
       if (!owner || !name) {
         throw new Error('Invalid repository URL format');
+      }
+      
+      // Load saved branch names from localStorage if not provided
+      if (!defaultBranches) {
+        const savedDefaultBranchesString = localStorage.getItem(LAST_REPO_DATA_KEY);
+        if (savedDefaultBranchesString) {
+          try {
+            defaultBranches = JSON.parse(savedDefaultBranchesString);
+          } catch (error) {
+            console.error('Error parsing saved default branches:', error);
+            defaultBranches = { 
+              development: 'Development',
+              quality: 'Quality',
+              production: 'Production'
+            };
+          }
+        } else {
+          defaultBranches = { 
+            development: 'Development',
+            quality: 'Quality',
+            production: 'Production'
+          };
+        }
       }
       
       const repo: Repository = {
@@ -680,76 +687,49 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
     setReadmeContent(null);
   };
   
-  const updateDefaultBranches = (newDefaultBranches: { development: string, quality: string, production: string }) => {
-    if (repository) {
+  const updateDefaultBranches = async (newDefaultBranches: { development: string, quality: string, production: string }) => {
+    if (!repository) return;
+
+    try {
+      // Update the repository state with new branch names
       const updatedRepo = {
         ...repository,
         defaultBranches: newDefaultBranches
       };
       
+      // Update repository state
       setRepository(updatedRepo);
-      
-      if (repository.url && repository.token) {
-        saveLastRepoData({
-          url: repository.url,
-          token: repository.token,
-          defaultBranches: newDefaultBranches
-        });
-        
-        const existingRepoIndex = savedRepositories.findIndex(r => r.url === repository.url);
-        if (existingRepoIndex >= 0) {
-          const updatedRepos = [...savedRepositories];
-          updatedRepos[existingRepoIndex] = {
-            ...updatedRepos[existingRepoIndex],
-            defaultBranches: newDefaultBranches
-          };
-          
-          setSavedRepositories(updatedRepos);
-          localStorage.setItem(SAVED_REPOSITORIES_KEY, JSON.stringify(updatedRepos));
-        }
-        
-        localStorage.setItem(DEFAULT_BRANCHES_KEY, JSON.stringify(newDefaultBranches));
-      }
-      
-      fetchBranches();
+
+      // Fetch branches with new settings
+      await fetchBranches(updatedRepo);
+    } catch (error) {
+      console.error('Error updating default branches:', error);
+      throw error;
     }
   };
 
-  const fetchBranches = async () => {
-    if (!repository) {
-      setError('No repository connected');
-      return;
-    }
-    
+  const fetchBranches = async (repoToUse?: Repository) => {
+    const repo = repoToUse || repository;
+    if (!repo) return;
+
     setLoading(true);
     setError(null);
-    
+
     try {
-      let fetchedBranches: Branch[] = [];
+      const { owner, name, provider, token, defaultBranches } = repo;
       
-      await fetchRepoStats(repository.owner, repository.name, repository.provider, repository.token);
-      
-      switch (repository.provider) {
-        case 'github':
-          fetchedBranches = await fetchGitHubBranches(
-            repository.owner, 
-            repository.name, 
-            repository.token,
-            repository.defaultBranches
-          );
-          break;
-        default:
-          throw new Error('Only GitHub is currently supported');
-      }
-      
+      // Fetch branches using the latest branch names
+      const fetchedBranches = await fetchGitHubBranches(
+        owner,
+        name,
+        token,
+        defaultBranches
+      );
+
       setBranches(fetchedBranches);
-      setRepository({
-        ...repository,
-        lastFetched: new Date().toISOString()
-      });
-    } catch (err) {
-      console.error('Error fetching branches:', err);
-      setError(`Failed to fetch branches. ${err instanceof Error ? err.message : ''} Please check your repository connection.`);
+    } catch (error) {
+      console.error('Error fetching branches:', error);
+      setError('Failed to fetch branches');
     } finally {
       setLoading(false);
     }

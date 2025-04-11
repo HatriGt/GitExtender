@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useRepository } from "@/contexts/RepositoryContext";
 import { Branch } from "@/types/git";
@@ -83,15 +82,17 @@ const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehin
               <motion.div
                 whileHover={{ scale: 1.2 }}
                 transition={{ duration: 0.2 }}
+                className="bg-green-100 dark:bg-green-900/30 p-1 rounded-full"
               >
-                <Check className="h-5 w-5 text-git-merged" />
+                <Check className="h-5 w-5 text-green-600 dark:text-green-400" />
               </motion.div>
             ) : (
               <motion.div
                 whileHover={{ scale: 1.2 }}
                 transition={{ duration: 0.2 }}
+                className="bg-red-100 dark:bg-red-900/30 p-1 rounded-full"
               >
-                <X className="h-5 w-5 text-git-unmerged" />
+                <X className="h-5 w-5 text-red-600 dark:text-red-400" />
               </motion.div>
             )}
           </div>
@@ -114,43 +115,22 @@ const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehin
   );
 };
 
-// Component for branch type badge
-const BranchTypeIcon = ({ type }: { type: Branch["type"] }) => {
-  const getTypeIcon = () => {
-    switch (type) {
-      case "feature":
-        return <Code className="h-3.5 w-3.5 mr-1.5" />;
-      case "bugfix":
-        return <Bug className="h-3.5 w-3.5 mr-1.5" />;
-      case "hotfix":
-        return <Flame className="h-3.5 w-3.5 mr-1.5" />;
-      default:
-        return <GitBranch className="h-3.5 w-3.5 mr-1.5" />;
-    }
+// Component to show branch type with color
+const BranchTypeBadge = ({ type }: { type: string }) => {
+  const typeStyles = {
+    feature: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+    bugfix: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
+    hotfix: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
+    other: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
   };
-  
-  const getTypeClasses = () => {
-    switch (type) {
-      case "feature":
-        return "branch-feature";
-      case "bugfix":
-        return "branch-bugfix";
-      case "hotfix":
-        return "branch-hotfix";
-      default:
-        return "bg-gray-50 text-gray-600 border-gray-300 dark:bg-gray-800/30 dark:text-gray-400 dark:border-gray-700";
-    }
-  };
-  
+
   return (
-    <motion.div 
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getTypeClasses()}`}
-      whileHover={{ scale: 1.05 }}
-      transition={{ duration: 0.2 }}
+    <Badge 
+      variant="outline" 
+      className={`${typeStyles[type as keyof typeof typeStyles] || typeStyles.other} px-2 py-1 rounded-full text-xs font-medium`}
     >
-      {getTypeIcon()}
-      {type}
-    </motion.div>
+      {type.charAt(0).toUpperCase() + type.slice(1)}
+    </Badge>
   );
 };
 
@@ -248,13 +228,15 @@ export const BranchTable = () => {
       return `Today at ${format(dateObj, 'h:mm a')}`;
     } else if (diffInHours < 48) {
       return `Yesterday at ${format(dateObj, 'h:mm a')}`;
+    } else if (diffInHours < 168) { // Less than a week
+      return `${format(dateObj, 'EEEE')} at ${format(dateObj, 'h:mm a')}`;
     } else {
-      return formatDistanceToNow(dateObj, { addSuffix: true });
+      return format(dateObj, 'MMM d, yyyy h:mm a');
     }
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full overflow-x-auto">
       <motion.div 
         className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4"
         initial={{ opacity: 0, y: 5 }}
@@ -306,91 +288,64 @@ export const BranchTable = () => {
         </div>
       </motion.div>
       
-      <motion.div 
-        className="rounded-xl border shadow-md overflow-hidden bg-card transition-all duration-300 hover:shadow-lg"
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
+      <div className="rounded-md border bg-card shadow-sm">
         <Table>
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="w-[40px]">
-                <Checkbox 
-                  checked={areAllBranchesSelected && branches.length > 0} 
+              <TableHead className="w-[50px]">
+                <Checkbox
+                  checked={areAllBranchesSelected}
                   onCheckedChange={toggleAllBranchSelection}
+                  aria-label="Select all"
                 />
               </TableHead>
-              <TableHead>Branch</TableHead>
+              <TableHead>Name</TableHead>
               <TableHead className="hidden md:table-cell">Type</TableHead>
-              <TableHead className="hidden md:table-cell">Last Updated</TableHead>
               <TableHead className="hidden md:table-cell">Author</TableHead>
-              <TableHead className="text-center">
-                {repository?.defaultBranches.development}
-              </TableHead>
-              <TableHead className="text-center">
-                {repository?.defaultBranches.quality}
-              </TableHead>
-              <TableHead className="text-center">
-                {repository?.defaultBranches.production}
-              </TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="hidden md:table-cell">Last Updated</TableHead>
+              <TableHead className="text-center">Dev</TableHead>
+              <TableHead className="text-center">Quality</TableHead>
+              <TableHead className="text-center">Prod</TableHead>
+              <TableHead className="w-[100px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredBranches.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <GitBranch className="h-8 w-8 opacity-20" />
-                    <p className="font-medium">No branches found</p>
-                    <p className="text-sm">Try changing your filter settings</p>
-                  </div>
+                <TableCell colSpan={8} className="h-24 text-center">
+                  No branches found.
                 </TableCell>
               </TableRow>
             ) : (
               filteredBranches.map((branch, index) => (
                 <motion.tr
                   key={branch.id}
-                  className="transition-all hover:bg-muted/30 cursor-default"
                   custom={index}
+                  variants={tableRowVariants}
                   initial="hidden"
                   animate="visible"
-                  variants={tableRowVariants}
-                  whileHover={{ backgroundColor: "rgba(0,0,0,0.03)" }}
+                  className="group"
                 >
                   <TableCell>
-                    <Checkbox 
-                      checked={branch.selected} 
+                    <Checkbox
+                      checked={branch.selected}
                       onCheckedChange={() => toggleBranchSelection(branch.id)}
+                      aria-label={`Select ${branch.name}`}
                     />
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <motion.button
-                        onClick={() => openBranchDetails(branch)}
-                        className="font-medium text-left hover:text-primary hover:underline transition-colors flex items-center gap-1"
-                        whileHover={{ x: 2 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <GitBranch className="inline-block h-3.5 w-3.5 mr-1 opacity-70" />
-                        {branch.name}
-                      </motion.button>
+                      <span className="font-medium">{branch.name}</span>
                       <div className="md:hidden mt-1 flex flex-wrap gap-1">
-                        <BranchTypeIcon type={branch.type} />
+                        <BranchTypeBadge type={branch.type} />
                       </div>
                       <div className="md:hidden mt-1 text-xs text-muted-foreground">
-                        {formatDate(branch.lastUpdated)}
-                        <span className="mx-1">•</span>
-                        {branch.author}
+                        {branch.author} • {formatDate(branch.lastUpdated)}
                       </div>
                     </div>
                   </TableCell>
                   <TableCell className="hidden md:table-cell">
-                    <BranchTypeIcon type={branch.type} />
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell whitespace-nowrap">
-                    {formatDate(branch.lastUpdated)}
+                    <BranchTypeBadge type={branch.type} />
                   </TableCell>
                   <TableCell className="hidden md:table-cell whitespace-nowrap">
                     <div className="flex items-center gap-2">
@@ -403,45 +358,30 @@ export const BranchTable = () => {
                       <span className="text-sm">{branch.author}</span>
                     </div>
                   </TableCell>
-                  
-                  {/* Development status */}
+                  <TableCell className="hidden md:table-cell whitespace-nowrap">
+                    {formatDate(branch.lastUpdated)}
+                  </TableCell>
                   <TableCell className="text-center">
                     <MergeStatusIcon 
                       status={branch.status.find(s => s.target === repository?.defaultBranches.development) || { isMerged: false }} 
                     />
                   </TableCell>
-                  
-                  {/* Quality status */}
                   <TableCell className="text-center">
                     <MergeStatusIcon 
                       status={branch.status.find(s => s.target === repository?.defaultBranches.quality) || { isMerged: false }} 
                     />
                   </TableCell>
-                  
-                  {/* Production status */}
                   <TableCell className="text-center">
                     <MergeStatusIcon 
                       status={branch.status.find(s => s.target === repository?.defaultBranches.production) || { isMerged: false }} 
                     />
                   </TableCell>
-                  
-                  {/* Actions */}
-                  <TableCell className="text-right">
+                  <TableCell>
                     <div className="flex justify-end">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 rounded-full hover:bg-primary/10"
-                        onClick={() => openBranchDetails(branch)}
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                        <span className="sr-only">View branch details</span>
-                      </Button>
-                      
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-primary/10">
-                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
                             <span className="sr-only">Open menu</span>
                           </Button>
                         </DropdownMenuTrigger>
@@ -496,7 +436,7 @@ export const BranchTable = () => {
             )}
           </TableBody>
         </Table>
-      </motion.div>
+      </div>
       
       {/* Branch details dialog */}
       <Dialog open={branchDetailOpen} onOpenChange={setBranchDetailOpen}>
@@ -516,7 +456,7 @@ export const BranchTable = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <h4 className="text-sm font-semibold mb-2">Type</h4>
-                  <BranchTypeIcon type={selectedBranchDetail.type} />
+                  <BranchTypeBadge type={selectedBranchDetail.type} />
                 </div>
                 
                 <div>

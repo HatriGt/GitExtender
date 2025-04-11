@@ -1,2 +1,4 @@
 node_modules
 bun.lockb
+.cur*
+package-lock.json
