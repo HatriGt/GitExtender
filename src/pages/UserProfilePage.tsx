@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GitBranch, Star, GitFork, Eye, Building2, User, Search, Filter, SortAsc, SortDesc, Github, ExternalLink, Calendar, Clock, Code2, Globe, Mail, Link2, Twitter } from "lucide-react";
+import { GitBranch, Star, GitFork, Eye, Building2, User, Search, Filter, SortAsc, SortDesc, Github, ExternalLink, Calendar, Clock, Code2, Globe, Mail, Link2, Twitter, CodeIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useRepository } from "@/contexts/RepositoryContext";
 import { Input } from "@/components/ui/input";
@@ -587,23 +587,42 @@ const UserProfilePage = () => {
                             <CardTitle className="text-lg group-hover:text-primary transition-colors">
                               {repo.name}
                             </CardTitle>
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleRepoClick(repo.name)}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity"
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>View repository</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => window.open(`https://github.dev/${username}/${repo.name}`, '_blank')}
+                                      className="h-8 w-8"
+                                    >
+                                      <Code2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Open in github.dev editor</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleRepoClick(repo.name)}
+                                      className="h-8 w-8"
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>View repository</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
                           </div>
                           <CardDescription className="line-clamp-2">{repo.description}</CardDescription>
                         </CardHeader>
