@@ -72,7 +72,11 @@ import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 
 // Component to show merge status icon with tooltip
-const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehind?: number, commitsAhead?: number } }) => {
+const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehind?: number, commitsAhead?: number, totalCommits?: number, mergedCommits?: number } }) => {
+  const mergeProgress = status.totalCommits && status.mergedCommits 
+    ? Math.round((status.mergedCommits / status.totalCommits) * 100)
+    : 0;
+
   return (
     <TooltipProvider>
       <Tooltip>
@@ -90,9 +94,17 @@ const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehin
               <motion.div
                 whileHover={{ scale: 1.2 }}
                 transition={{ duration: 0.2 }}
-                className="bg-red-100 dark:bg-red-900/30 p-1 rounded-full"
+                className="relative bg-red-100 dark:bg-red-900/30 p-1 rounded-full"
               >
                 <X className="h-5 w-5 text-red-600 dark:text-red-400" />
+                {mergeProgress > 0 && (
+                  <div className="absolute -bottom-1 left-0 right-0 h-1 bg-red-200 dark:bg-red-800 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-red-600 dark:bg-red-400 transition-all duration-300"
+                      style={{ width: `${mergeProgress}%` }}
+                    />
+                  </div>
+                )}
               </motion.div>
             )}
           </div>
@@ -101,12 +113,19 @@ const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehin
           <p className="font-medium">
             {status.isMerged 
               ? "Fully merged" 
-              : "Not merged"}
+              : mergeProgress > 0
+                ? `Partially merged (${mergeProgress}%)`
+                : "Not merged"}
           </p>
           {(status.commitsBehind !== undefined && status.commitsAhead !== undefined) && (
             <p className="text-xs text-muted">
               {status.commitsAhead > 0 && `${status.commitsAhead} commit${status.commitsAhead !== 1 ? 's' : ''} ahead. `}
               {status.commitsBehind > 0 && `${status.commitsBehind} commit${status.commitsBehind !== 1 ? 's' : ''} behind.`}
+            </p>
+          )}
+          {status.totalCommits && status.mergedCommits && (
+            <p className="text-xs text-muted">
+              {status.mergedCommits} of {status.totalCommits} commits merged
             </p>
           )}
         </TooltipContent>

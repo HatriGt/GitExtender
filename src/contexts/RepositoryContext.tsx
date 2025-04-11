@@ -200,134 +200,61 @@ const fetchGitHubBranches = async (
                   target,
                   isMerged: false,
                   commitsBehind: 0,
-                  commitsAhead: 0
+                  commitsAhead: 0,
+                  totalCommits: 0,
+                  mergedCommits: 0
                 };
               }
 
-              // Method 1: Check if the branch has been merged into target using the compare API
-              try {
-                // First check commits from target to branch
-                const compareResponse = await axios({
-                  method: 'get',
-                  url: `https://api.github.com/repos/${owner}/${repo}/compare/${encodeURIComponent(target)}...${encodeURIComponent(branch.name)}`,
-                  headers: headers
-                });
-                
-                if (compareResponse.status === 200) {
-                  const compareData = compareResponse.data;
-                  
-                  // If branch is ahead by 0 commits and status is not diverged, it means branch is either equal to or behind target
-                  const commitsAhead = compareData.ahead_by;
-                  const commitsBehind = compareData.behind_by;
-                  
-                  // Branch is merged if:
-                  // 1. It has no commits ahead of target and is not diverged
-                  // 2. It is behind target (meaning target has all its commits)
-                  // 3. It has diverged but target has all its commits
-                  const isMerged = (commitsAhead === 0 && compareData.status !== 'diverged') || 
-                                  (commitsBehind > 0 && commitsAhead === 0) ||
-                                  (compareData.status === 'diverged' && commitsBehind > 0);
-                  
-                  // If we're not sure about the merge status, check the other direction
-                  if (!isMerged) {
-                    try {
-                      const reverseCompare = await axios({
-                        method: 'get',
-                        url: `https://api.github.com/repos/${owner}/${repo}/compare/${encodeURIComponent(branch.name)}...${encodeURIComponent(target)}`,
-                        headers: headers
-                      });
-                      
-                      // If target contains all of branch's commits, then branch is effectively merged
-                      if (reverseCompare.data.status === 'ahead' && reverseCompare.data.ahead_by > 0) {
-                        return {
-                          target,
-                          isMerged: true,
-                          lastMergeDate: new Date().toISOString(),
-                          commitsBehind: 0,
-                          commitsAhead: 0
-                        };
-                      }
-                    } catch (error) {
-                      console.error(`Reverse comparison error: ${error}`);
-                    }
-                  }
-                  
-                  return {
-                    target,
-                    isMerged,
-                    lastMergeDate: isMerged ? new Date().toISOString() : undefined,
-                    commitsBehind,
-                    commitsAhead
-                  };
-                }
-                
-                return { target, isMerged: false, commitsBehind: 0, commitsAhead: 0 };
-              } catch (error) {
-                console.error(`Compare API error: ${error}`);
-                
-                // Method 2: Fall back to checking if the branch SHA is an ancestor of target SHA
-                try {
-                  // Get both branch and target SHAs
-                  const branchResponse = await axios({
-                    method: 'get',
-                    url: `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(branch.name)}`,
-                    headers: headers
-                  });
-                  
-                  const targetResponse = await axios({
-                    method: 'get',
-                    url: `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(target)}`,
-                    headers: headers
-                  });
-                  
-                  const branchSha = branchResponse.data.commit.sha;
-                  const targetSha = targetResponse.data.commit.sha;
-                  
-                  // If they're the same SHA, the branch is definitely merged
-                  if (branchSha === targetSha) {
-                    return {
-                      target,
-                      isMerged: true,
-                      lastMergeDate: new Date().toISOString(),
-                      commitsBehind: 0,
-                      commitsAhead: 0
-                    };
-                  }
-                  
-                  // Try to use commits endpoint to see if branch commit is in target's history
-                  try {
-                    const commitsResponse = await axios({
-                      method: 'get',
-                      url: `https://api.github.com/repos/${owner}/${repo}/commits`,
-                      params: {
-                        sha: target,
-                        per_page: 100
-                      },
-                      headers: headers
-                    });
-                    
-                    // Check if branch commit is in the target's history
-                    const isMerged = commitsResponse.data.some((commit: any) => commit.sha === branchSha);
-                    
-                    return {
-                      target,
-                      isMerged,
-                      lastMergeDate: isMerged ? new Date().toISOString() : undefined,
-                      commitsBehind: isMerged ? 0 : 1, // Estimate
-                      commitsAhead: 0
-                    };
-                  } catch (error) {
-                    console.error(`Commits history check error: ${error}`);
-                    return { target, isMerged: false, commitsBehind: 0, commitsAhead: 0 };
-                  }
-                } catch (error) {
-                  console.error(`Branch SHA comparison error: ${error}`);
-                  return { target, isMerged: false, commitsBehind: 0, commitsAhead: 0 };
-                }
-              }
+              // Use GitHub's compare API to check the difference between branches
+              const compareResponse = await axios({
+                method: 'get',
+                url: `https://api.github.com/repos/${owner}/${repo}/compare/${encodeURIComponent(target)}...${encodeURIComponent(branch.name)}`,
+                headers: headers
+              });
+              
+              const { ahead_by: commitsAhead, behind_by: commitsBehind, status } = compareResponse.data;
+              
+              // A branch is considered merged if:
+              // 1. It has no commits ahead of target (ahead_by === 0)
+              // 2. The status is not 'diverged'
+              // 3. Or if it's diverged but the content is identical
+              const isMerged = (commitsAhead === 0 && status !== 'diverged') || 
+                             (status === 'identical');
+
+              // For additional context, get the commit counts
+              const featureCommitsResponse = await axios({
+                method: 'get',
+                url: `https://api.github.com/repos/${owner}/${repo}/commits`,
+                params: {
+                  sha: branch.name,
+                  per_page: 100
+                },
+                headers: headers
+              });
+
+              const totalCommits = featureCommitsResponse.data.length;
+              const mergedCommits = totalCommits - commitsAhead;
+              
+              return {
+                target,
+                isMerged,
+                lastMergeDate: isMerged ? new Date().toISOString() : undefined,
+                commitsBehind,
+                commitsAhead,
+                totalCommits,
+                mergedCommits: Math.max(0, mergedCommits)
+              };
             } catch (error) {
               console.log(`Error checking merge status for ${branch.name} to ${target}:`, error);
-              return { target, isMerged: false, commitsBehind: 0, commitsAhead: 0 };
+              return { 
+                target, 
+                isMerged: false, 
+                commitsBehind: 0, 
+                commitsAhead: 0,
+                totalCommits: 0,
+                mergedCommits: 0
+              };
             }
           })
         );
