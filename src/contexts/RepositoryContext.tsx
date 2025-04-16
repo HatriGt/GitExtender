@@ -27,6 +27,17 @@ interface RepositoryContextType {
   openPullRequestForm: (branchName: string, targetBranch: string) => void;
   deleteBranch: (branchName: string) => Promise<void>;
   saveRepository: (repo: SavedRepository) => void;
+  createMergeRequest: (data: {
+    title: string;
+    description: string;
+    sourceBranch: string;
+    targetBranch: string;
+    reviewers?: string[];
+    assignees?: string[];
+    labels?: string[];
+    projects?: string[];
+    milestone?: string;
+  }) => Promise<void>;
 }
 
 const RepositoryContext = createContext<RepositoryContextType>({
@@ -49,6 +60,7 @@ const RepositoryContext = createContext<RepositoryContextType>({
   openPullRequestForm: () => {},
   deleteBranch: async () => {},
   saveRepository: () => {},
+  createMergeRequest: async () => {},
 });
 
 export const useRepository = () => useContext(RepositoryContext);
@@ -753,6 +765,139 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
     }
   };
 
+  const createMergeRequest = async (data: {
+    title: string;
+    description: string;
+    sourceBranch: string;
+    targetBranch: string;
+    reviewers?: string[];
+    assignees?: string[];
+    labels?: string[];
+    projects?: string[];
+    milestone?: string;
+  }) => {
+    if (!repository) {
+      throw new Error("No repository connected");
+    }
+
+    const { owner, name } = parseRepoUrl(repository.url);
+    const token = repository.token;
+
+    try {
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      // First, check if the branches exist and if they can be merged
+      const sourceBranchResponse = await axios({
+        method: 'get',
+        url: `https://api.github.com/repos/${owner}/${name}/branches/${encodeURIComponent(data.sourceBranch)}`,
+        headers: headers
+      });
+
+      const targetBranchResponse = await axios({
+        method: 'get',
+        url: `https://api.github.com/repos/${owner}/${name}/branches/${encodeURIComponent(data.targetBranch)}`,
+        headers: headers
+      });
+
+      if (!sourceBranchResponse.data || !targetBranchResponse.data) {
+        throw new Error("One or both branches do not exist");
+      }
+
+      // Check if branches can be merged
+      const compareResponse = await axios({
+        method: 'get',
+        url: `https://api.github.com/repos/${owner}/${name}/compare/${encodeURIComponent(data.targetBranch)}...${encodeURIComponent(data.sourceBranch)}`,
+        headers: headers
+      });
+
+      if (compareResponse.data.mergeable === false) {
+        throw new Error("Branches cannot be automatically merged");
+      }
+
+      // Create the pull request
+      const prResponse = await axios({
+        method: 'post',
+        url: `https://api.github.com/repos/${owner}/${name}/pulls`,
+        headers: headers,
+        data: {
+          title: data.title,
+          body: data.description,
+          head: data.sourceBranch,
+          base: data.targetBranch
+        }
+      });
+
+      const prNumber = prResponse.data.number;
+
+      // Add reviewers if specified
+      if (data.reviewers?.length) {
+        await axios({
+          method: 'post',
+          url: `https://api.github.com/repos/${owner}/${name}/pulls/${prNumber}/requested_reviewers`,
+          headers: headers,
+          data: {
+            reviewers: data.reviewers
+          }
+        });
+      }
+
+      // Add assignees if specified
+      if (data.assignees?.length) {
+        await axios({
+          method: 'post',
+          url: `https://api.github.com/repos/${owner}/${name}/issues/${prNumber}/assignees`,
+          headers: headers,
+          data: {
+            assignees: data.assignees
+          }
+        });
+      }
+
+      // Add labels if specified
+      if (data.labels?.length) {
+        await axios({
+          method: 'post',
+          url: `https://api.github.com/repos/${owner}/${name}/issues/${prNumber}/labels`,
+          headers: headers,
+          data: data.labels
+        });
+      }
+
+      // Add to project if specified
+      if (data.projects?.length) {
+        // Note: This requires GraphQL API for GitHub Projects v2
+        // You'll need to implement this separately using the GraphQL API
+      }
+
+      // Set milestone if specified
+      if (data.milestone) {
+        await axios({
+          method: 'patch',
+          url: `https://api.github.com/repos/${owner}/${name}/issues/${prNumber}`,
+          headers: headers,
+          data: {
+            milestone: data.milestone
+          }
+        });
+      }
+
+      // Refresh branches to update merge status
+      await fetchBranches();
+
+      return prResponse.data;
+    } catch (error) {
+      console.error("Failed to create merge request:", error);
+      throw error;
+    }
+  };
+
   const value = {
     repository,
     branches,
@@ -772,7 +917,8 @@ export const RepositoryProvider = ({ children }: { children: React.ReactNode }) 
     createPullRequest,
     openPullRequestForm,
     deleteBranch,
-    saveRepository
+    saveRepository,
+    createMergeRequest
   };
 
   return (

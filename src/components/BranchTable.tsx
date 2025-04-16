@@ -32,7 +32,8 @@ import {
   Bug,
   Flame,
   Code,
-  Zap
+  Zap,
+  GitPullRequestIcon
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
@@ -70,6 +71,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
+import { MergeRequestDialog } from "./MergeRequestDialog";
 
 // Component to show merge status icon with tooltip
 const MergeStatusIcon = ({ status }: { status: { isMerged: boolean, commitsBehind?: number, commitsAhead?: number, totalCommits?: number, mergedCommits?: number } }) => {
@@ -162,7 +164,8 @@ export const BranchTable = () => {
     createPullRequest,
     openPullRequestForm,
     deleteBranch,
-    repository
+    repository,
+    createMergeRequest
   } = useRepository();
   
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -172,6 +175,8 @@ export const BranchTable = () => {
   const [branchToDelete, setBranchToDelete] = useState<Branch | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [mergeRequestDialogOpen, setMergeRequestDialogOpen] = useState(false);
+  const [selectedBranchForMerge, setSelectedBranchForMerge] = useState<Branch | null>(null);
   
   const handleCreatePR = (branch: Branch, targetBranch: string) => {
     createPullRequest(branch.name, targetBranch);
@@ -207,6 +212,26 @@ export const BranchTable = () => {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const handleCreateMergeRequest = async (data: {
+    title: string;
+    description: string;
+    sourceBranch: string;
+    targetBranch: string;
+  }) => {
+    try {
+      await createMergeRequest(data);
+      toast.success("Merge request created successfully");
+    } catch (error) {
+      toast.error("Failed to create merge request");
+      throw error;
+    }
+  };
+
+  const handleOpenMergeRequest = (branch: Branch) => {
+    setSelectedBranchForMerge(branch);
+    setMergeRequestDialogOpen(true);
   };
 
   const filteredBranches = branches.filter(branch => {
@@ -340,10 +365,10 @@ export const BranchTable = () => {
                 <motion.tr
                   key={branch.id}
                   custom={index}
-                  variants={tableRowVariants}
                   initial="hidden"
                   animate="visible"
-                  className="group"
+                  variants={tableRowVariants}
+                  className="hover:bg-muted/50"
                 >
                   <TableCell>
                     <Checkbox
@@ -396,59 +421,35 @@ export const BranchTable = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="flex justify-end">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Open menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 animate-in fade-in-0 zoom-in-95 shadow-md">
-                          <DropdownMenuItem 
-                            onClick={() => handleCreatePR(branch, repository?.defaultBranches.development || 'development')}
-                            className="cursor-pointer"
-                          >
-                            <GitMerge className="h-4 w-4 mr-2" />
-                            Merge to {repository?.defaultBranches.development}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleCreatePR(branch, repository?.defaultBranches.quality || 'quality')}
-                            className="cursor-pointer"
-                          >
-                            <GitMerge className="h-4 w-4 mr-2" />
-                            Merge to {repository?.defaultBranches.quality}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleCreatePR(branch, repository?.defaultBranches.production || 'production')}
-                            className="cursor-pointer"
-                          >
-                            <GitMerge className="h-4 w-4 mr-2" />
-                            Merge to {repository?.defaultBranches.production}
-                          </DropdownMenuItem>
-                          
-                          <DropdownMenuSeparator />
-                          
-                          <DropdownMenuItem 
-                            onClick={() => handleOpenPR(branch, repository?.defaultBranches.development || 'development')}
-                            className="cursor-pointer"
-                          >
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            Open PR Form
-                          </DropdownMenuItem>
-                          
-                          <DropdownMenuSeparator />
-                          
-                          <DropdownMenuItem 
-                            onClick={() => handleDeleteConfirmation(branch)}
-                            className="text-destructive cursor-pointer group"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2 group-hover:animate-wiggle" />
-                            Delete Branch
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openBranchDetails(branch)}>
+                          <Info className="mr-2 h-4 w-4" />
+                          View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenMergeRequest(branch)}>
+                          <GitMerge className="mr-2 h-4 w-4" />
+                          Create Merge Request
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleOpenPR(branch, repository?.defaultBranches?.development || '')}>
+                          <GitPullRequestIcon className="mr-2 h-4 w-4" />
+                          Open PR
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => handleDeleteConfirmation(branch)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </motion.tr>
               ))
@@ -624,6 +625,24 @@ export const BranchTable = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {selectedBranchForMerge && (
+        <MergeRequestDialog
+          isOpen={mergeRequestDialogOpen}
+          onClose={() => {
+            setMergeRequestDialogOpen(false);
+            setSelectedBranchForMerge(null);
+          }}
+          sourceBranch={selectedBranchForMerge}
+          targetBranches={[
+            repository?.defaultBranches?.development || 'development',
+            repository?.defaultBranches?.quality || 'quality',
+            repository?.defaultBranches?.production || 'production'
+          ]}
+          repository={repository!}
+          onCreateMergeRequest={handleCreateMergeRequest}
+        />
+      )}
     </div>
   );
 };
