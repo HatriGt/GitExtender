@@ -2,3 +2,7 @@ node_modules
 bun.lockb
 .cur*
 package-lock.json
+
+# Local Netlify folder
+.netlify
+dist

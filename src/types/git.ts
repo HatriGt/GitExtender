@@ -1,4 +1,3 @@
-
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket';
 
 export type BranchType = 'feature' | 'bugfix' | 'hotfix' | 'other';
@@ -23,33 +22,37 @@ export interface Branch {
 }
 
 export interface Repository {
+  id?: string;
+  name: string;
+  owner: string;
   url: string;
   provider: GitProvider;
-  owner: string;
-  name: string;
   isConnected: boolean;
-  lastFetched?: string;
-  token?: string;
   defaultBranches: {
     development: string;
     quality: string;
     production: string;
   };
+  token?: string;
   description?: string;
+  lastFetched?: string;
 }
 
 export interface SavedRepository {
   url: string;
-  provider: GitProvider;
-  owner: string;
   name: string;
-  token?: string;
+  owner: string;
+  provider: GitProvider;
   lastUsed: string;
+  token?: string;
   defaultBranches: {
     development: string;
     quality: string;
     production: string;
   };
+  isOrganization?: boolean;
+  type: 'repository' | 'user' | 'organization';
+  isDeleted?: boolean;
 }
 
 export interface RepoContributor {

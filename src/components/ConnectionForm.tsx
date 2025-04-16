@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { GitBranch, KeyRound, History, ChevronDown, Eye, EyeOff, Clock } from "lucide-react";
+import { GitBranch, KeyRound, History, ChevronDown, Eye, EyeOff, Clock, User, Building2, X } from "lucide-react";
 import { toast } from "sonner";
 import { GitProvider, SavedRepository } from "@/types/git";
 import { 
@@ -17,18 +17,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatDistanceToNowStrict } from "date-fns";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { Switch } from "@/components/ui/switch";
 
 export const ConnectionForm = () => {
-  const { connectRepository, loading, savedRepositories, repository } = useRepository();
+  const { connectRepository, loading, savedRepositories, repository, saveRepository } = useRepository();
+  const navigate = useNavigate();
   
-  const [url, setUrl] = useState("");
+  const [input, setInput] = useState("");
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
+  const [isUsername, setIsUsername] = useState(false);
+  const [isOrganization, setIsOrganization] = useState(false);
 
   // Load last used repository data if available
   useEffect(() => {
     if (repository) {
-      setUrl(repository.url || "");
+      setInput(repository.url || "");
       setToken(repository.token || "");
     }
   }, [repository]);
@@ -41,17 +46,123 @@ export const ConnectionForm = () => {
     return null;
   };
 
+  const cleanUsername = (input: string): string => {
+    // Remove any GitHub URL prefixes
+    const cleaned = input
+      .replace(/^https?:\/\/(?:www\.)?github\.com\//, '')
+      .replace(/^github\.com\//, '')
+      .replace(/^@/, '')
+      .trim();
+    
+    // Remove trailing slash if present
+    return cleaned.replace(/\/$/, '');
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    
+    // Check if input is a username (no slashes or dots, or just github.com URL)
+    const cleanedValue = cleanUsername(value);
+    const isUsernameInput = /^[a-zA-Z0-9_-]+$/.test(cleanedValue);
+    setIsUsername(isUsernameInput);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!url.trim()) {
-      toast.error("Repository URL is required");
+    if (!input.trim()) {
+      toast.error("Input is required");
+      return;
+    }
+
+    if (isUsername) {
+      // Clean the username input
+      const cleanedUsername = cleanUsername(input);
+      
+      // Check if this user/org already exists in saved repositories
+      const existingRepo = savedRepositories.find(
+        repo => repo.owner === cleanedUsername && 
+                repo.type === (isOrganization ? 'organization' : 'user')
+      );
+
+      const newRepo: SavedRepository = {
+        url: `https://github.com/${cleanedUsername}`,
+        name: cleanedUsername,
+        owner: cleanedUsername,
+        provider: 'github',
+        lastUsed: new Date().toISOString(),
+        token: token || undefined,
+        defaultBranches: {
+          development: "Development",
+          quality: "Quality",
+          production: "Production"
+        },
+        isOrganization,
+        type: isOrganization ? 'organization' : 'user',
+        isDeleted: false
+      };
+
+      if (existingRepo) {
+        // Update the existing entry
+        saveRepository({
+          ...existingRepo,
+          token: token || existingRepo.token,
+          lastUsed: new Date().toISOString(),
+          isDeleted: false
+        });
+      } else {
+        // Create new entry
+        saveRepository(newRepo);
+      }
+      
+      // Store token and type in localStorage
+      if (token) {
+        localStorage.setItem('github_token', token);
+      }
+      localStorage.setItem('profile_type', isOrganization ? 'org' : 'user');
+      
+      // Navigate to user/organization profile page with clean URL
+      navigate(`/${cleanedUsername}`);
       return;
     }
     
     try {
+      // Check if this repository already exists in saved repositories
+      const existingRepo = savedRepositories.find(
+        repo => repo.url === input
+      );
+
+      const newRepo: SavedRepository = {
+        url: input,
+        name: input.split('/').pop() || '',
+        owner: input.split('/').slice(-2, -1)[0] || '',
+        provider: detectProvider(input) || 'github',
+        lastUsed: new Date().toISOString(),
+        token: token || undefined,
+        defaultBranches: {
+          development: "Development",
+          quality: "Quality",
+          production: "Production"
+        },
+        isOrganization: false,
+        type: 'repository'
+      };
+
+      if (existingRepo) {
+        // Update the existing entry
+        saveRepository({
+          ...existingRepo,
+          token: token || existingRepo.token,
+          lastUsed: new Date().toISOString()
+        });
+      } else {
+        // Create new entry
+        saveRepository(newRepo);
+      }
+
       await connectRepository(
-        url, 
+        input, 
         token || undefined,
         {
           development: "Development",
@@ -67,11 +178,39 @@ export const ConnectionForm = () => {
   };
   
   const handleSelectSavedRepository = (savedRepo: SavedRepository) => {
-    setUrl(savedRepo.url);
+    setInput(savedRepo.url);
     setToken(savedRepo.token || "");
+    
+    if (savedRepo.type === 'repository') {
+      setIsUsername(false);
+      setIsOrganization(false);
+    } else {
+      setIsUsername(true);
+      setIsOrganization(savedRepo.type === 'organization');
+      
+      // Store token and type in localStorage
+      if (savedRepo.token) {
+        localStorage.setItem('github_token', savedRepo.token);
+      }
+      localStorage.setItem('profile_type', savedRepo.type === 'organization' ? 'org' : 'user');
+      
+      // Navigate to user/organization profile page
+      navigate(`/${savedRepo.owner}`);
+    }
   };
 
-  const provider = detectProvider(url);
+  const handleDeleteRecent = (e: React.MouseEvent, repo: SavedRepository) => {
+    e.stopPropagation();
+    const updatedRepos = savedRepositories.filter(r => r.url !== repo.url);
+    saveRepository({
+      ...repo,
+      lastUsed: new Date().toISOString(),
+      isDeleted: true
+    });
+    toast.success(`${repo.type === 'repository' ? 'Repository' : repo.type === 'organization' ? 'Organization' : 'User'} removed from recents`);
+  };
+
+  const provider = detectProvider(input);
 
   return (
     <motion.div
@@ -81,18 +220,20 @@ export const ConnectionForm = () => {
     >
       <Card className="w-full max-w-md mx-auto shadow-lg border border-border/50 bg-card/60 backdrop-blur-sm">
         <CardHeader className="space-y-1 pb-4">
-          <CardTitle className="text-2xl font-bold">Connect Repository</CardTitle>
+          <CardTitle className="text-2xl font-bold">Connect to GitHub</CardTitle>
           <CardDescription>
-            Enter your Git repository URL and optional access token to get started
+            Enter a repository URL, username, or organization name to get started
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <Label htmlFor="repository-url">Repository URL</Label>
+                <Label htmlFor="input">
+                  {isUsername ? (isOrganization ? "Organization Name" : "Username") : "Repository URL"}
+                </Label>
                 
-                {savedRepositories.length > 0 && (
+                {savedRepositories.length > 0 && !isUsername && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -105,18 +246,40 @@ export const ConnectionForm = () => {
                         <ChevronDown className="h-3.5 w-3.5 opacity-70" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[300px]">
-                      <DropdownMenuLabel>Recent Repositories</DropdownMenuLabel>
+                    <DropdownMenuContent align="end" className="w-[300px] max-h-[400px] overflow-y-auto">
+                      <DropdownMenuLabel>Recent Connections</DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       {savedRepositories
+                        .filter(repo => !repo.isDeleted)
                         .sort((a, b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime())
                         .map((repo) => (
                           <DropdownMenuItem
                             key={repo.url}
                             onClick={() => handleSelectSavedRepository(repo)}
-                            className="flex flex-col items-start"
+                            className="flex flex-col items-start group"
                           >
-                            <span className="font-medium">{repo.owner}/{repo.name}</span>
+                            <div className="flex justify-between w-full items-center">
+                              <div className="flex items-center gap-2">
+                                {repo.type === 'repository' ? (
+                                  <GitBranch className="h-4 w-4 text-muted-foreground" />
+                                ) : repo.type === 'organization' ? (
+                                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <User className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <span className="font-medium">
+                                  {repo.type === 'repository' ? `${repo.owner}/${repo.name}` : repo.owner}
+                                </span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => handleDeleteRecent(e, repo)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
                             <span className="text-xs text-muted-foreground">
                               {repo.url.length > 40 ? repo.url.substring(0, 40) + '...' : repo.url}
                             </span>
@@ -132,26 +295,45 @@ export const ConnectionForm = () => {
               </div>
               
               <div className="flex items-center space-x-2 mt-1">
-                <GitBranch className="h-4 w-4 text-muted-foreground" />
+                {isUsername ? (
+                  isOrganization ? (
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <User className="h-4 w-4 text-muted-foreground" />
+                  )
+                ) : (
+                  <GitBranch className="h-4 w-4 text-muted-foreground" />
+                )}
                 <Input
-                  id="repository-url"
-                  placeholder="https://github.com/username/repository"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
+                  id="input"
+                  placeholder={isUsername ? (isOrganization ? "organization-name" : "username") : "https://github.com/username/repository"}
+                  value={input}
+                  onChange={handleInputChange}
                   required
                   className="flex-1"
                 />
               </div>
-              {provider && (
+              {!isUsername && provider && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Detected: {provider.charAt(0).toUpperCase() + provider.slice(1)}
                 </p>
               )}
             </div>
 
+            {isUsername && (
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="organization-toggle"
+                  checked={isOrganization}
+                  onCheckedChange={setIsOrganization}
+                />
+                <Label htmlFor="organization-toggle">Organization Profile</Label>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="access-token">
-                Personal Access Token (optional)
+                Personal Access Token {isUsername ? "(required for private repositories)" : "(optional)"}
               </Label>
               <div className="flex items-center space-x-2 relative">
                 <KeyRound className="h-4 w-4 text-muted-foreground" />
@@ -175,12 +357,14 @@ export const ConnectionForm = () => {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Token is needed for private repositories and branch management
+                {isUsername 
+                  ? "Token is required to view private repositories and organization data"
+                  : "Token is needed for private repositories and branch management"}
               </p>
             </div>
             
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Connecting..." : "Connect Repository"}
+              {loading ? "Connecting..." : isUsername ? `View ${isOrganization ? 'Organization' : 'User'} Profile` : "Connect Repository"}
             </Button>
           </form>
         </CardContent>
